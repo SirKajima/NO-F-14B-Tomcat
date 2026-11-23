@@ -1,0 +1,4 @@
+# F-14B Tomcat (F14B mod) catapult settings for Aryx's carriers (Penumbra supercarrier / Helion).
+# definition name | clutch parent | clutch transform position | detection radius | release speed m/s | max accel g | full throttle delay s | should deploy blast deflectors
+# Clutch = bottom of the extended nose wheel (0, -1.85, 6.21 aircraft frame) in the 'cockpit' part's local space (part at 0, 0.8, 5.9).
+F14B_AircraftDefinition | cockpit | 0, -2.65, 0.31 | 1.25 | 85 | 4.5 | 1 | true
