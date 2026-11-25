@@ -2,7 +2,7 @@
 
 A US Navy F-14B Tomcat for Nuclear Option. It is built with the Blueprinter framework, plus a BepInEx plugin for the systems that Blueprinter can't do on its own (spoilers, carrier gear, structural stiffening and more). The flight model is based on real F-14B figures, then tuned for Nuclear Option with a War Thunder-style game feel: a little stronger than the real jet, but not overpowered.
 
-**Current release:** `F-14B Tomcat_0.1.9.nobp` + `F14B.Systems.dll` 0.1.9
+**Current release:** `F-14B Tomcat_0.2.0.nobp` + `F14B.Systems.dll` 0.2.0 (extended update)
 
 > 3D model: "F-14B Tomcat with AIM-54 Phoenix" by **Jeyhun1985** on Sketchfab, CC BY 4.0 (see [CREDITS.md](CREDITS.md)).
 
@@ -18,9 +18,9 @@ A US Navy F-14B Tomcat for Nuclear Option. It is built with the Blueprinter fram
 You need BepInEx and the Blueprinter mod already installed.
 
 1. Delete any older `F-14B Tomcat_*.nobp` from your `BepInEx\plugins` folder (and its subfolders). Two versions at once will conflict.
-2. Copy these from the `release/` folder into `Nuclear Option\BepInEx\plugins\` (a subfolder such as `plugins\F14B\` is fine):
-   - `F-14B Tomcat_0.1.9.nobp`
-   - `F14B.Systems.dll`
+2. Copy these from the `release/` folder (or the release download) into `Nuclear Option\BepInEx\plugins\` (a subfolder such as `plugins\F14B\` is fine):
+   - `F-14B Tomcat_0.2.0.nobp`
+   - `F14B.Systems.dll` 0.2.0 (keep only one copy of the dll). The 0.2.0 jet and the 0.2.0 plugin go together: the jet now has two game engines, and the plugin carries the new flight limits, takeoff help and the gun-flash fix.
 3. Start the game. The Tomcat appears in the hangar aircraft list.
 4. Optional, with [Aryx's FS-41 Eclipse](https://github.com/Aryx3D/Aryx-s-FS-41-Eclipse) mod: the Tomcat can spawn on the **Penumbra Class Supercarrier** and the **Helion Class Carrier** and use their catapults. Put `release/F14B.catapults` in `BepInEx\plugins\com.nikkorap.blueprinter\addons\aryx.fs41\`. In multiplayer **every player** needs this file, not just the host: each player's own game runs their catapult launch. See [Compatibility](#compatibility-with-other-mods-optional-soft-dependencies) for how to launch and trap.
 5. Optional, for bug reports: `release/F14B.FlightDebug.dll` (flight recorder, see below).
@@ -80,6 +80,24 @@ Neither mod below is required. The Tomcat has no hard reference to them: if one 
 
 ---
 
+## Make your own livery (Livery Paint Kit)
+
+The **Livery Paint Kit** is a separate download on the [releases page](https://github.com/SirKajima/NO-F-14B-Tomcat/releases/latest) (`LiveryPaintKit_F14B.zip`). It has everything needed to paint a custom livery for the F-14B Tomcat:
+- `F14B_PaintKit.fbx`: exterior model with only the paintable surfaces, using the same UV layout as the mod. Import it into Substance Painter or Blender.
+- `F14B_PaintKit_WithReference.fbx`: the same model plus the canopy glass and the parts that keep their own textures, in plain grey.
+- `F14B_PaintKit.blend`: Blender file with the base texture already connected.
+- `F14B_Livery_Base.png`: the default 4096 x 4096 livery texture to paint over.
+- UV guides: wireframe, a colour map showing which side of the jet each texture area belongs to, and the lines drawn over the base texture.
+- `README.md` with step-by-step instructions, and `LiveryBuilder.cs` (see below).
+
+Liveries are built and uploaded the official way, as in the Steam guide [How to Build and Publish a Livery](https://steamcommunity.com/sharedfiles/filedetails/?id=3656861098). Paint one colour texture, build it with the Nuclear Option Livery Project in Unity, test it from `AppData\LocalLow\Shockfront\NuclearOption\Skins`, and upload it from **Main Menu > Workshop > Upload > Aircraft Livery**.
+
+The one extra step is that the livery builder doesn't list modded jets. Use the kit's `LiveryBuilder.cs`, or add `"F-14B Tomcat"` to the `Aircraft` list in `Assets/Scripts/Editor/LiveryBuilder.cs`, and pick **F-14B Tomcat** as the aircraft. Suggested glossiness is 0.45. Players need this mod installed to see the livery.
+
+**F-14B limit:** some panels on the wings (along the leading edge and near the tips), the flaps and parts of the tailplanes use a separate texture and stay grey whatever you paint. They are shown as grey reference parts in the kit.
+
+---
+
 ## Highlights
 
 ### Aircraft and visuals
@@ -94,11 +112,12 @@ Neither mod below is required. The Tomcat has no hard reference to them: if one 
   - whole wheels spin, tyre, rim, hub disc and spokes, while the legs and forks stay still
 - **Two-crew cockpit:** pilot and RIO sit in the model's own ejection seats.
 - **Ejection seats** for both crew, with canopy jettison.
-- **Afterburner** glow and flame sized to the F-14's real nozzles.
+- **Afterburner:** the FS-20 Vortex flame and nozzle glow, sized to the F110's 1.04 m nozzle. The glow sits deep in the tailpipe just behind the turbine face, and the flame starts inside the nozzle.
+- **Two engines** in the game, one per F110 (each engine can be lost separately; an engine fire shows on its own side of the damage display).
 - Boarding ladder on the left side when parked, navigation lights at the wingtips.
 - Livery: **Navy Gray** (BDF and PALA).
 - **Weapons:**
-  - internal 20 mm rotary cannon
+  - internal 20 mm rotary cannon, firing from the real M61 port on the left side of the nose (muzzle flash and smoke at the port **[plugin]**)
   - glove shoulder rails (air-to-air missiles)
   - glove pylons (air-to-air missiles)
   - tunnel stations under the fuselage, one front and two rear (air-to-air missiles and bombs)
@@ -123,10 +142,16 @@ Neither mod below is required. The Tomcat has no hard reference to them: if one 
 
 ### Flight model (game feel)
 Based on real F-14B data, tuned to feel right in Nuclear Option. Figures marked "model" are what the tuning aims for and have not been measured in game.
-- **g:** 8 g fly-by-wire limit, angle-of-attack limiter at 27°.
-- **Engines:** two F110s, 256 kN total in full afterburner (about 0.9 thrust-to-weight fully fuelled).
+- **g and AoA [plugin]:** War Thunder-style.
+  - **Stability Assist on:** 8 g, angle of attack limited to 25° (the real jet stalls at about 24–25° true AoA, 29 units), −3 g push.
+  - **Stability Assist off:** up to 10 g and **no AoA limiter**, like the real hydromechanical F-14: you can pull to the stall and past it, so high-AoA departures are possible. −5 g push.
+  - **Over-g failure:** hold more than about 11–12 g (or less than about −6.5 g) and a wing tears off. Only reachable with Stability Assist off.
+- **Engines:** two F110s, 256 kN total in full afterburner. **[plugin]** +6 % below 15,000 ft (fading out by 20,000 ft): thrust-to-weight about 0.95 fully fuelled and about 1.1 at half fuel.
 - **Top speed:** about Mach 1.2 at low level (model; transonic wave drag added in 0.1.5).
-- **Takeoff:** flaps stay fully down through rotation; lift-off about 150 kt (model).
+- **Takeoff [plugin]:** more nose authority on the runway with the flaps out, and more flap lift.
+  - Nose comes up at about 120 kt light (~45,000 lb), 130 kt at a normal load (~62,000 lb), 140+ kt heavy (model).
+  - Lift-off about 145–165 kt depending on weight (model). Pull smoothly to 8–10° nose-up; the assist stops pushing before the tail-strike angle.
+  - The same flap lift makes approaches slower.
 - **Airbrake:** about a fifth of its 0.1.4 strength, for steady deceleration rather than a wall.
 - **[plugin] Structure assist:** the game builds aircraft from separate parts held by physics joints, which made the wings bend like a bird's and flutter (fine 6 Hz shaking) at high speed. The plugin holds the wing, tail and engine sections rigid against each other. It uses equal and opposite forces, so it adds no lift, thrust or drag.
 
@@ -162,6 +187,14 @@ Edit `BepInEx\config\f14b.systems.cfg` (created after the first launch):
 | Structure | `JointDamping` | How strongly flutter between parts is damped (default 0.25) |
 | Structure | `JointStiffness` | How strongly bending between parts is pulled back (default 0.08) |
 | Flight | `WaveDragArea` | Extra drag through Mach 1; sets the top speed (default 0.6 ≈ Mach 1.2 at low level) |
+| Flight | `GameFeel` | War Thunder-style limits below; off = the prefab's fixed 8 g / 27° law (default on) |
+| Flight | `SAOnGLimit` | g limit with Stability Assist on (default 8) |
+| Flight | `SAOffGLimit` | g you can command with Stability Assist off (default 10) |
+| Flight | `SAOnAoALimit` | AoA limiter with Stability Assist on (default 25°); none with it off |
+| Flight | `LowAltitudeThrustBoost` | Extra thrust below 15,000 ft (default 0.06 = +6 %) |
+| Damage | `OverGStructuralFailure` | A wing tears off when over-stressed (default on) |
+| Takeoff | `RotationAssist` | Extra nose-up authority on the runway with flaps out (default 1; 0 = off) |
+| Takeoff | `FlapLift` | Extra lift with the flaps out (default 12 m²): lift-off and approach speeds |
 | Wing Sweep | `BlockModifierThrottleSweep` | Stops Axis Modifier + Throttle from switching the wings to manual |
 | Carrier | `TailHook` | Tells the game the Tomcat has a tail hook |
 | Carrier | `ArrestPitchRelief` | How much of the wire's nose-down pitch is removed: 0 = full real slam, 1 = nose stays level (default 0.15) |
@@ -171,6 +204,8 @@ Edit `BepInEx\config\f14b.systems.cfg` (created after the first launch):
 | Carrier | `GearDiagnostics` | Writes a log line when the safety net steps in (for bug reports) |
 | Weapons | `MountSelfCollisionFix` | Weapons hung on the jet (any mod's, e.g. Multi-Missile) never collide with the jet's own parts, so they can't damage it at spawn (default on) |
 | Weapons | `MountCollisionLog` | Writes a log line for every weapon mount the fix is applied to (for bug reports, default off) |
+| Weapons | `GunMuzzleFix` | Muzzle flash and smoke at the M61 port (default on) |
+| Camera | `CockpitClipFix` | Keeps the cockpit view from cutting away the instrument panel after spawning (default on) |
 
 If the jet ever behaves strangely after part of it is shot off, try `StructureAssist = false` and report it.
 
@@ -180,6 +215,17 @@ Records each sortie for bug reports: one folder per flight in `BepInEx\F14B_Debu
 ---
 
 ## Changelog
+
+### 0.2.0 (plugin 0.2.0): extended update
+- **Livery Paint Kit (new, separate download):** exterior FBX models, base texture, UV guides and instructions for making your own liveries; see [Make your own livery](#make-your-own-livery-livery-paint-kit).
+- **Gun:** the bullets leave from the real M61 port on the left side of the nose, and **[plugin]** the muzzle flash and smoke now appear at the port (before they showed 2.2 m further back, on the cheek).
+- **Gear doors:** the doors no longer close before the main gear is in, then flick open again. Cause: the nose leg finished retracting 1.5 s before the mains, and the game locks *all* gear "up" when the first leg finishes, which shut the main doors early; then the mains finished and ran their door cycle again. All legs now take 4.5 s, so they finish together. The small forward nose doors were also re-hinged so the game's end-of-cycle reset leaves them closed.
+- **Afterburner:** the AB-4 Alkyon flame is replaced by the FS-20 Vortex flame and nozzle glow, shaped to the F110 nozzle. The glow sits deep in the tailpipe at the turbine face, and the flame starts 0.6 m inside the nozzle.
+- **Canopy glass** is clear from the cockpit (no more milky haze); it looks the same from outside.
+- **Two engines instead of four.** The jet came from the AB-4, which has two game engines per nacelle. Now there is one per F110, each with double the thrust, fuel flow and heat signature, so total thrust (256 kN in full afterburner), fuel burn and IR signature are unchanged. The electrical generators charge at the same total rate. Losing an engine now costs half the thrust, like the real jet. The damage display shows ENGINE 1 / ENGINE 2 fires on their own nacelles.
+- **[plugin] Flight model, War Thunder-style:** 8 g and 25° AoA with Stability Assist on; up to 10 g and no AoA limiter with it off (pull to the stall and beyond), −3 / −5 g push. Pull more than about 11–12 g and a wing tears off.
+- **[plugin] Takeoff:** rotation assist and flap lift: nose up at about 120 / 130 / 140+ kt (light / normal / heavy), lift-off about 145–165 kt. +6 % thrust below 15,000 ft (T/W about 1.1 at half fuel).
+- **[plugin] Cockpit camera:** the near clip plane is held at 0.2 m (a game bug can leave it at 1 m after the spawn menu, which cuts the instrument panel away).
 
 ### 0.1.9 (plugin 0.1.9)
 - **[plugin] Weapons no longer damage the jet at spawn.** Some Multi-Missile racks have solid collision shapes that reach into a neighbouring part of the Tomcat (the glove cheeks from the glove pylons and shoulder rails; the fuselage, engines and gear bays from the tunnel stations). The game pushed the parts apart when the jet spawned, which damaged them. Weapons hung on the Tomcat now ignore collisions with its own parts; they still hit the ground, other aircraft and bullets normally. Works for any mod's weapons (setting `MountSelfCollisionFix`, on by default). Multi-Missile weapons need this plugin version.
@@ -247,8 +293,6 @@ Records each sortie for bug reports: one folder per flight in `BepInEx\F14B_Debu
 ### 0.1.0
 - First build: F-14B model on the AB-4 Alkyon swing-wing rig, swinging wings, flaps, stabilators, rudders, speedbrakes, canopy, gear, internal cannon and missile stations, Navy Gray livery.
 - Flight recorder plugin (`F14B.FlightDebug.dll`) for bug reports.
-
----
 
 ## Credits
 - 3D model: "F-14B Tomcat with AIM-54 Phoenix" by **Jeyhun1985** on Sketchfab, licensed **CC BY 4.0**. The model was modified for this mod (see [CREDITS.md](CREDITS.md)).

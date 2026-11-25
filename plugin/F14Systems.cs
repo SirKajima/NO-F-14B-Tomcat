@@ -17,12 +17,16 @@ using UnityEngine;
 //           nose wheel can't sink into the deck (same fix as the Hornet; chains with the Hornet plugin's patch)
 //  - 0.1.9: weapon mounts ignore collisions with the F-14's own parts (Multi-Missile spawn damage fix)
 //  - 0.1.8: leading-edge slats (17 deg with the flaps, 7 deg maneuver slats by AoA, stall protection) + slat lift
+//  - 0.2.0 (extended updates, goes with F-14B 0.2.0 = 2 game engines):
+//           War Thunder-style limits (8 g / 25 deg AoA with Stability Assist, 10 g and no AoA limiter without it),
+//           over-g wing failure, takeoff rotation assist + flap lift (nose up ~130 kt at normal weight),
+//           low-altitude thrust boost, gun flash at the M61 port, cockpit camera near-clip fix
 namespace F14BSystems
 {
     [BepInPlugin("f14b.systems", "F-14B Tomcat Systems", Version)]
     public class Plugin : BaseUnityPlugin
     {
-        public const string Version = "0.1.9";
+        public const string Version = "0.2.0";
         internal static BepInEx.Logging.ManualLogSource Log;
         internal static ConfigEntry<bool> RollSpoilers, GroundSpoilers, DLC, TailHookOn;
         internal static ConfigEntry<float> SpoilerMaxSweep, ArrestRelief, GroundSpoilerDrag, DlcStrength;
@@ -31,6 +35,8 @@ namespace F14BSystems
         internal static ConfigEntry<bool> MountCollisionFix, MountCollisionLog;
         internal static ConfigEntry<int> SolverIterations;
         internal static ConfigEntry<float> JointDamping, JointStiffness, WaveDragArea;
+        internal static ConfigEntry<bool> GameFeel, OverG, GunMuzzleFix, CockpitClipFix;
+        internal static ConfigEntry<float> SaOnG, SaOffG, SaOnAlpha, LowAltBoost, RotationAssist, FlapLift;
         void Awake()
         {
             Log = Logger;
@@ -56,6 +62,16 @@ namespace F14BSystems
             JointDamping = Config.Bind("Structure", "JointDamping", 0.25f, new ConfigDescription("Share of the relative motion between joined parts removed each physics step.", new AcceptableValueRange<float>(0f, 0.5f)));
             JointStiffness = Config.Bind("Structure", "JointStiffness", 0.08f, new ConfigDescription("Share of the bend between joined parts pulled back each physics step.", new AcceptableValueRange<float>(0f, 0.2f)));
             WaveDragArea = Config.Bind("Flight", "WaveDragArea", 0.6f, new ConfigDescription("Extra drag area (m^2) through the transonic rise (peaks M1.15-1.3, eases off at M2). Sets the top speed: about M1.2 at low level.", new AcceptableValueRange<float>(0f, 2f)));
+            GameFeel = Config.Bind("Flight", "GameFeel", true, "War Thunder-style limits. Stability Assist on: SAOnGLimit and SAOnAoALimit, -3 g push. Stability Assist off: up to SAOffGLimit with no AoA limiter (the F-14 has no AoA limiter: you can pull to the stall and past it), -5 g push.");
+            SaOnG = Config.Bind("Flight", "SAOnGLimit", 8.0f, new ConfigDescription("g limit with Stability Assist on (real NATOPS 6.5 g, structure 7.5 g).", new AcceptableValueRange<float>(6f, 9f)));
+            SaOffG = Config.Bind("Flight", "SAOffGLimit", 10.0f, new ConfigDescription("g you can command with Stability Assist off.", new AcceptableValueRange<float>(8f, 12f)));
+            SaOnAlpha = Config.Bind("Flight", "SAOnAoALimit", 25f, new ConfigDescription("AoA limiter (deg) with Stability Assist on. The real jet stalls at about 24-25 deg true AoA (29 units).", new AcceptableValueRange<float>(18f, 32f)));
+            LowAltBoost = Config.Bind("Flight", "LowAltitudeThrustBoost", 0.06f, new ConfigDescription("Extra thrust below 15,000 ft (fades out by 20,000 ft). 0.06 = +6 %: thrust-to-weight about 1.1 at half fuel.", new AcceptableValueRange<float>(0f, 0.2f)));
+            OverG = Config.Bind("Damage", "OverGStructuralFailure", true, "Pull too hard and a wing tears off: above about 11-12 g (or below about -6.5 g) held for more than a moment. Only reachable with Stability Assist off.");
+            RotationAssist = Config.Bind("Takeoff", "RotationAssist", 1.0f, new ConfigDescription("Extra nose-up authority on the ground with the flaps out (the big stabilators at low speed). 1 = nose comes up at about 120 kt light, 130 kt at a normal load, 140+ kt heavy. 0 = off.", new AcceptableValueRange<float>(0f, 2f)));
+            FlapLift = Config.Bind("Takeoff", "FlapLift", 12f, new ConfigDescription("Extra lift area (m^2) with the flaps fully out, growing with AoA from 2 to 10 deg: liftoff about 145-165 kt by weight, slower approaches.", new AcceptableValueRange<float>(0f, 20f)));
+            GunMuzzleFix = Config.Bind("Weapons", "GunMuzzleFix", true, "Put the 20 mm muzzle flash and smoke at the M61 gun port on the left side of the nose (the game's gun puts them 2.2 m behind the bullets).");
+            CockpitClipFix = Config.Bind("Camera", "CockpitClipFix", true, "Keep the cockpit camera's near clip plane at 0.2 m. The game sometimes leaves it at 1 m after the spawn menu closes, which cuts away the instrument panel.");
             BlockModifierSweep = Config.Bind("Wing Sweep", "BlockModifierThrottleSweep", true, "Holding Axis Modifier while moving the throttle no longer switches the wings to manual sweep (that latched the wings swept back after using the airbrake). Custom Axis 1 still gives manual sweep.");
             var h = new Harmony("f14b.systems"); int ok = 0;
             foreach (var t in typeof(Plugin).Assembly.GetTypes())
@@ -84,12 +100,53 @@ namespace F14BSystems
             public List<Link> links = new List<Link>(); public float nextScan; public bool loggedLinks;
             public LandingGear nose; public TailHook hook; public bool arrest; public float arrestEnd, noseK, noseC, noseMax;
             public Transform[] slatH = new Transform[2]; public Quaternion[] slatRest = new Quaternion[2]; public Rigidbody[] slatRb = new Rigidbody[2]; public float slat;
+            public Turbofan[] engines = new Turbofan[0]; public AeroPart[] parts = new AeroPart[0];
+            public Vector3 vPrev; public bool hasPrev, broken; public float nFilt, overT, limitHi = 11.4f, limitLo = -6.8f, logT = -99f;
         }
         class Link { public Joint j; public Rigidbody c, p; public bool hinge; public Quaternion rest; }
         static readonly Dictionary<Aircraft, St> state = new Dictionary<Aircraft, St>();
         static readonly AccessTools.FieldRef<HighLiftDevice, float> fHld = AccessTools.FieldRefAccess<HighLiftDevice, float>("position");
         static readonly MethodInfo miLock = AccessTools.Method(typeof(ControlSurface), "SetLocked");
         const float MaxDeflect = 55f, DlcBias = 0.14f;
+        const float RotK = 16f;   // N*m per Pa of nose-up assist at full aft stick and full flaps (calibrated from the 0.1.6 takeoff data)
+        static readonly AccessTools.FieldRef<AeroPart, PartJoint[]> jointsOf = AccessTools.FieldRefAccess<AeroPart, PartJoint[]>("joints");
+        static readonly string[] WingParts = { "wing1", "wing2", "wingtip", "aileron", "flap" };
+        static bool InWing(UnitPart p, string side)
+        {
+            if (p == null) return false; string n = p.gameObject.name;
+            foreach (var w in WingParts) if (n == w + side) return true;
+            return false;
+        }
+        static int BreakWing(Aircraft a, St s, string side)
+        {
+            int k = 0;
+            foreach (var p in s.parts)
+            {
+                if (p == null) continue;
+                var js = jointsOf(p); if (js == null) continue;
+                bool pin = InWing(p, side);
+                foreach (var j in js)
+                {
+                    if (j == null || j.joint == null) continue;
+                    if (pin != InWing(j.connectedPart, side)) { UnityEngine.Object.Destroy(j.joint); k++; }
+                }
+            }
+            // any other physics joint across the wing root (the sweep hinge)
+            var wingRbs = new HashSet<Rigidbody>(); foreach (var p in s.parts) if (InWing(p, side) && p.rb != null) wingRbs.Add(p.rb);
+            foreach (var p in s.parts)
+            {
+                if (p == null) continue;
+                foreach (var j in p.GetComponents<Joint>())
+                {
+                    if (j == null) continue;
+                    var b0 = j.GetComponent<Rigidbody>(); var b1 = j.connectedBody;
+                    if (b0 != null && b1 != null && wingRbs.Contains(b0) != wingRbs.Contains(b1)) { UnityEngine.Object.Destroy(j); k++; }
+                }
+            }
+            foreach (var w in All<SwingWingController>(a)) if (w != null) w.enabled = false;   // the sweep rig would keep driving a missing joint
+            s.links.Clear(); s.nextScan = 0f;
+            return k;
+        }
 
         // At runtime the game unparents every UnitPart, so search the root and every part.
         static T[] All<T>(Aircraft a) where T : Component
@@ -127,6 +184,10 @@ namespace F14BSystems
                 else if (t.name == "F14_SlatHinge_L") { s.slatH[0] = t; s.slatRest[0] = t.localRotation; s.slatRb[0] = t.GetComponentInParent<Rigidbody>(); }
                 else if (t.name == "F14_SlatHinge_R") { s.slatH[1] = t; s.slatRest[1] = t.localRotation; s.slatRb[1] = t.GetComponentInParent<Rigidbody>(); }
             }
+            s.engines = All<Turbofan>(a); s.parts = All<AeroPart>(a);
+            var rnd = new System.Random(a.GetInstanceID());
+            s.limitHi = 11.0f + (float)rnd.NextDouble() * 0.8f; s.limitLo = -6.5f - (float)rnd.NextDouble() * 0.5f;
+            Plugin.Log.LogInfo($"F-14B engines {s.engines.Length}, over-g limits {s.limitHi:F1} / {s.limitLo:F1} g");
             Plugin.Log.LogInfo($"F-14B systems on '{a.unitName}': sweep {(s.sweep != null)}, roll surfaces {s.ail.Length}, spoiler hinges {(s.hinge[0] != null)}/{(s.hinge[1] != null)}, slat hinges {(s.slatH[0] != null)}/{(s.slatH[1] != null)}, gears {s.gears.Length}");
         }
         // ---------------------------------------------------------------- structure assist
@@ -290,8 +351,55 @@ namespace F14BSystems
                 if (!Plugin.SlatsOn.Value) slatT = 0f;
                 s.slat = Mathf.MoveTowards(s.slat, slatT, dt * 25f);
                 for (int i = 0; i < 2; i++) { var h = s.slatH[i]; if (h != null) h.localRotation = s.slatRest[i] * Quaternion.Euler(s.slat, 0f, 0f); }
+                // ---- over-g structural failure (0.2.0) ----
+                if (s.hasPrev && Plugin.OverG.Value && !s.broken && !s.rb.isKinematic && dt > 0f)
+                {
+                    Vector3 acc = (v - s.vPrev) / dt - Physics.gravity;
+                    float n = Vector3.Dot(acc, a.transform.up) / 9.81f;
+                    s.nFilt += (n - s.nFilt) * Mathf.Clamp01(dt / 0.08f);
+                    if ((s.nFilt > s.limitHi || s.nFilt < s.limitLo) && a.radarAlt > 2f) s.overT += dt; else s.overT = 0f;
+                    if (s.overT > 0.12f)
+                    {
+                        string side = UnityEngine.Random.value < 0.5f ? "_L" : "_R";
+                        int k = BreakWing(a, s, side);
+                        Plugin.Log.LogInfo($"F-14B wing{side} failed at {s.nFilt:F1} g ({k} joints)");
+                        s.broken = true;
+                    }
+                }
+                s.vPrev = v; s.hasPrev = true;
                 if (s.rb.isKinematic || V < 1f) return;
                 Vector3 dir = v / V;
+                // ---- takeoff: rotation assist on the ground (0.2.0) ----
+                float pull = Mathf.Clamp01(-pitchIn);
+                if (Plugin.RotationAssist.Value > 0f && wow && a.gearDeployed && flap > 0.3f && pull > 0f && V > 25f)
+                {
+                    float pitchDeg = Mathf.Asin(Mathf.Clamp(a.transform.forward.y, -1f, 1f)) * Mathf.Rad2Deg;
+                    float fade = Mathf.Clamp01((11f - pitchDeg) / 2.5f);          // stop pushing before the tail-strike angle (10.8 deg)
+                    s.rb.AddTorque(-a.transform.right * (RotK * Plugin.RotationAssist.Value * q * pull * Mathf.Clamp01(flap) * fade), ForceMode.Force);   // +x rotation is nose-down
+                }
+                // ---- flap lift: lower liftoff and approach speeds (0.2.0) ----
+                if (Plugin.FlapLift.Value > 0f && flap > 0.05f && V > 20f)
+                {
+                    float ramp = Mathf.Clamp01((aoa - 2f) / 8f) * Mathf.Clamp01(1f - (aoa - 16f) / 8f);
+                    float L = q * Plugin.FlapLift.Value * Mathf.Clamp01(flap) * ramp;
+                    if (L > 0f) s.rb.AddForce(Vector3.Cross(v, a.transform.right).normalized * L - dir * (L * 0.1f), ForceMode.Force);
+                }
+                // ---- low-altitude thrust boost (0.2.0) ----
+                if (Plugin.GameFeel.Value && Plugin.LowAltBoost.Value > 0f)
+                {
+                    float hgt = a.transform.GlobalPosition().y;
+                    float boost = Plugin.LowAltBoost.Value * Mathf.Clamp01((6096f - hgt) / 1524f);
+                    if (boost > 0f)
+                    {
+                        float thrust = 0f; foreach (var e in s.engines) if (e != null) thrust += e.GetThrust();
+                        if (thrust > 0f) s.rb.AddForce(a.transform.forward * (thrust * boost), ForceMode.Force);
+                    }
+                }
+                if (Time.time - s.logT > 2f && wow && V > 30f)
+                {
+                    s.logT = Time.time;
+                    Plugin.Log.LogInfo($"F-14B takeoff roll: {V * 1.944f:F0} kt, pull {pull:F2}, flap {flap:F2}, AoA {aoa:F1}, mass {a.GetMass():F0} kg");
+                }
                 if (Plugin.WaveDragArea.Value > 0f)
                 {
                     float m = mach;
@@ -554,6 +662,89 @@ namespace F14BSystems
                 if (Plugin.MountCollisionLog.Value) Plugin.Log.LogInfo($"mount {go.name}: {own.Length} collider(s) set to ignore {n} pairs with own airframe");
             }
             catch (Exception e) { Plugin.Log.LogWarning("mount collision fix failed: " + e.Message); }
+        }
+    }
+
+    // ---------------- 0.2.0: War Thunder-style FCS limits (Stability Assist on / off) ----------------
+    // Game FBW: g law (gLimitPositive, alpha limiter) with Stability Assist on or at high q; pitch-rate law (maxPitchAngularVel) with it off.
+    [HarmonyPatch(typeof(ControlsFilter.FlyByWire), "Filter")]
+    static class FbwPatch
+    {
+        class St { public bool f14; public float gBase = -1f, aBase = -1f, rBase = -1f; public bool lastOff; }
+        static readonly Dictionary<ControlsFilter.FlyByWire, St> state = new Dictionary<ControlsFilter.FlyByWire, St>();
+        static readonly AccessTools.FieldRef<ControlsFilter.FlyByWire, float> gLimit = AccessTools.FieldRefAccess<ControlsFilter.FlyByWire, float>("gLimitPositive");
+        static readonly AccessTools.FieldRef<ControlsFilter.FlyByWire, float> alpha = AccessTools.FieldRefAccess<ControlsFilter.FlyByWire, float>("alphaLimiter");
+        static readonly AccessTools.FieldRef<ControlsFilter.FlyByWire, float> maxRate = AccessTools.FieldRefAccess<ControlsFilter.FlyByWire, float>("maxPitchAngularVel");
+        const float G = 9.81f;
+        static void Prefix(ControlsFilter.FlyByWire __instance, Aircraft aircraft, ControlInputs inputs, bool stabilityAssist)
+        {
+            if (!state.TryGetValue(__instance, out var s)) { s = new St(); state[__instance] = s; s.f14 = Plugin.IsF14(aircraft); }
+            if (!s.f14) return;
+            if (s.gBase < 0f) { s.gBase = gLimit(__instance); s.aBase = alpha(__instance); s.rBase = maxRate(__instance); Plugin.Log.LogInfo($"F-14B FBW base: g {s.gBase}, alpha {s.aBase}, pitch rate {s.rBase}"); }
+            if (!Plugin.GameFeel.Value) { gLimit(__instance) = s.gBase; alpha(__instance) = s.aBase; maxRate(__instance) = s.rBase; return; }
+            bool off = !stabilityAssist && !aircraft.IsAutoHoverEnabled();
+            float V = Mathf.Max(aircraft.speed, 1f);
+            // the g law commands pitch rate (n - gravity): subtract the 1 g already on the airframe so the limits are true load factors
+            float c = Mathf.Clamp(Vector3.Dot(aircraft.transform.up, Vector3.up), -1f, 1f);
+            float lim = off ? Plugin.SaOffG.Value : Plugin.SaOnG.Value;
+            gLimit(__instance) = lim - c;
+            alpha(__instance) = off ? 90f : Plugin.SaOnAlpha.Value;
+            // rate law (SA off, low q): full pitch rate at low speed, capped at the SA-off g at high speed
+            float rate = off ? Mathf.Min(s.rBase, (Plugin.SaOffG.Value - c) * G / V) : s.rBase;
+            maxRate(__instance) = rate;
+            // push: -3 g with Stability Assist, -5 g without (pitch > 0 = push in the game's convention)
+            if (inputs.pitch > 0f)
+            {
+                float push = (off ? 5f : 3f) + c;
+                float k = off ? Mathf.Min(1f, push * G / (V * Mathf.Max(rate, 1e-3f))) : Mathf.Min(1f, push / Mathf.Max(lim - c, 0.5f));
+                inputs.pitch *= k;
+            }
+            if (off != s.lastOff) { s.lastOff = off; Plugin.Log.LogInfo(off ? $"F-14B Stability Assist off: {Plugin.SaOffG.Value} g, no AoA limiter" : $"F-14B Stability Assist on: {Plugin.SaOnG.Value} g, {Plugin.SaOnAlpha.Value} deg AoA"); }
+        }
+    }
+
+    // ---------------- 0.2.0: muzzle flash/smoke at the M61 port (the bullets already leave from the port) ----------------
+    [HarmonyPatch(typeof(Hardpoint), "SpawnMount")]
+    static class GunFlashPatch
+    {
+        static void Postfix(Hardpoint __instance, Aircraft aircraft)
+        {
+            try
+            {
+                if (!Plugin.GunMuzzleFix.Value || !Plugin.IsF14(aircraft) || __instance == null || __instance.transform == null) return;
+                var v = Traverse.Create(__instance).Field("spawnedPrefab").GetValue();
+                GameObject go = v as GameObject; if (go == null && v is Component comp) go = comp.gameObject;
+                if (go == null) return;
+                var gun = go.GetComponentInChildren<Gun>(true); if (gun == null) return;
+                var ps = Traverse.Create(gun).Field("muzzleParticles").GetValue() as System.Collections.IEnumerable; if (ps == null) return;
+                // port exit, in the hardpoint frame: 0.15 m behind the bullet origin (hardpoint + (0, 0.038, 3.0))
+                Vector3 port = __instance.transform.TransformPoint(new Vector3(0f, 0.038f, 2.85f));
+                int n = 0; foreach (var o in ps) { var p = o as ParticleSystem; if (p == null) continue; p.transform.position = port; n++; }
+                Plugin.Log.LogInfo($"F-14B gun: {n} muzzle effects moved to the gun port");
+            }
+            catch (Exception e) { Plugin.Log.LogWarning("F-14B gun flash: " + e.Message); }
+        }
+    }
+
+    // ---------------- 0.2.0: cockpit camera near clip (game bug: AircraftSelectionMenu.OnDestroy sets it to 1 m) ----------------
+    [HarmonyPatch(typeof(CameraCockpitState), "UpdateState")]
+    static class CockpitClipPatch
+    {
+        static readonly AccessTools.FieldRef<CameraCockpitState, Aircraft> acOf = AccessTools.FieldRefAccess<CameraCockpitState, Aircraft>("aircraft");
+        static bool logged;
+        static void Postfix(CameraCockpitState __instance, CameraStateManager cam)
+        {
+            try
+            {
+                if (!Plugin.CockpitClipFix.Value || cam == null || cam.mainCamera == null) return;
+                if (!Plugin.IsF14(acOf(__instance))) return;
+                if (cam.mainCamera.nearClipPlane > 0.21f)
+                {
+                    if (!logged) { logged = true; Plugin.Log.LogInfo($"F-14B cockpit camera near clip {cam.mainCamera.nearClipPlane} -> 0.2"); }
+                    cam.mainCamera.nearClipPlane = 0.2f;
+                }
+            }
+            catch (Exception) { }
         }
     }
 }

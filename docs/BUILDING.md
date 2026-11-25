@@ -15,7 +15,7 @@ You only need this to change the mod. To play it, use the files in [`release/`](
 1. Set up nikkorap's **Blueprinter-Editor** Unity project (Unity 2022.3, as its guide describes) with the game's DLLs imported.
 2. Copy `unity/Assets/` from this repo into the Blueprinter-Editor project's `Assets/` folder (it adds `Assets/Blueprinter/Mods/F14B/` and the editor scripts).
 3. Open the project and let Unity import.
-4. Build the mod with Blueprinter's mod builder: mod key **`F14B`**, display name **`F-14B Tomcat`**, version **`0.1.9`**. You can also run `MMCompat.BuildF14B()` from `Assets/Editor/MMCompat.cs`, which calls `Blueprinter.ModBuilder.Build` with those values and writes to `E:/Project/NOModding/Builds`; change the path first.
+4. Build the mod with Blueprinter's mod builder: mod key **`F14B`**, display name **`F-14B Tomcat`**, version **`0.2.0`**. You can also run `MMCompat.BuildF14B()` from `Assets/Editor/MMCompat.cs`, which calls `Blueprinter.ModBuilder.Build` with those values and writes to `E:/Project/NOModding/Builds`; change the path first.
 5. Put the new `.nobp` in `BepInEx\plugins\` (remove the old one).
 
 **Don't** add runtime scripts (`.cs` outside `Assets/Editor`) or editor packages to the Blueprinter-Editor project: they compile into a project `Assembly-CSharp` that clashes with the game's and corrupts the bundle's serialised data.
@@ -41,3 +41,8 @@ The scripts in `unity/Assets/Editor/` are the tooling used to make the mod: pref
 ## Notes
 - The prefab is built on the vanilla AB-4 Alkyon (`FastBomber1`) swing-wing rig. The F-14 meshes are attached under its transforms, and its own meshes are removed. Game assets are referenced through Blueprinter, not copied into this repo.
 - The F-14 model was prepared in Blender from the Sketchfab model and exported to `Model/F14B.fbx`, with each moving part's origin on its hinge. `Model/f14_export_info.json` lists the export groups and pivots.
+
+### Extended update and livery paint kit tooling
+- `EXBuild.cs`: the prefab edits of the extended update (F-14B 0.2.0 / FA-18C 0.7.0: engine split, afterburner, gear timing, stations, glass) and the builds (`EXBuild.BuildF14B()` / `EXBuild.BuildFA18C()`, output to `E:/Project/NOModding/Builds/EXBuilds`).
+- `EXTools.cs`, `EXMeasure.cs`: diagnostics and measurement helpers used for those edits.
+- `EXLivery.cs`: exports the livery-textured surfaces of the prefab (and the other exterior parts) as OBJ in prefab space; the Livery Paint Kit FBX files are converted from these in Blender (UVs moved from tile V 1..2 into 0..1).
